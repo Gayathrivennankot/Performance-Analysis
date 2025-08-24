@@ -90,8 +90,31 @@ body <- dashboardBody(
                            plotOutput("student_learning_type_scores")
                          )
                        )
+              ),
+              # New Tab 2: Comparison Bar
+              tabPanel("Student vs Class Averages",
+                       fluidRow(
+                         box(
+                           title = "Student vs Class Average by Learning Type",
+                           status = "primary",
+                           solidHeader = TRUE,
+                           width = 12,
+                           plotOutput("student_vs_class_average_plot")
+                         )
+                       )
+              ),
+              # New Tab 3: Radar Chart
+              tabPanel("Learning Profile Radar Chart",
+                       fluidRow(
+                         box(
+                           title = "Student Learning Profile",
+                           status = "primary",
+                           solidHeader = TRUE,
+                           width = 12,
+                           plotOutput("student_radar_chart")
+                         )
+                       )
               )
-              # Other student-specific graph tabs will go here
             )
     )
   )
