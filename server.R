@@ -3,6 +3,7 @@ library(dplyr)
 library(ggplot2)
 library(tidyr) # For pivot_longer
 library(DT) # For interactive tables
+library(fmsb) # For radar chart
 
 server <- function(input, output, session) {
   
@@ -100,16 +101,19 @@ server <- function(input, output, session) {
   
   # --- Class Analysis Outputs (Existing) ---
   
-  # Graph 1: Bar chart – Class average by learning type
-  output$class_average_plot <- renderPlot({
+  # Reactive expression for class average by learning type (reused for student vs class comparison)
+  class_avg_by_learning_type <- reactive({
     req(merged_data())
-    
-    plot_data <- merged_data() %>%
+    merged_data() %>%
       group_by(group) %>%
       summarise(average_score = mean(score, na.rm = TRUE)) %>%
       ungroup() %>%
-      # Order groups by average score for better visualization
-      arrange(desc(average_score)) %>%
+      arrange(desc(average_score))
+  })
+  
+  # Graph 1: Bar chart – Class average by learning type
+  output$class_average_plot <- renderPlot({
+    plot_data <- class_avg_by_learning_type() %>%
       mutate(group = factor(group, levels = group))
     
     ggplot(plot_data, aes(x = group, y = average_score, fill = group)) +
@@ -234,6 +238,95 @@ server <- function(input, output, session) {
             axis.title = element_text(size = 12),
             legend.position = "none") +
       scale_y_continuous(limits = c(0, 1)) # Scores are between 0 and 1
+  })
+  
+  # Graph 2 (Student Analysis): Comparison bar – Student vs Class Average
+  output$student_vs_class_average_plot <- renderPlot({
+    req(selected_student_merged_data(), class_avg_by_learning_type())
+    
+    student_avg_df <- selected_student_merged_data() %>%
+      group_by(group) %>%
+      summarise(average_score = mean(score, na.rm = TRUE)) %>%
+      mutate(Type = "Student")
+    
+    class_avg_df <- class_avg_by_learning_type() %>%
+      mutate(Type = "Class Average")
+    
+    # Combine data for plotting
+    comparison_df <- bind_rows(student_avg_df, class_avg_df) %>%
+      # Ensure consistent ordering of groups
+      mutate(group = factor(group, levels = unique(class_avg_df$group)))
+    
+    student_name <- unique(selected_student_merged_data()$Name)
+    
+    ggplot(comparison_df, aes(x = group, y = average_score, fill = Type)) +
+      geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7, color = "white") +
+      geom_text(aes(label = sprintf("%.2f", average_score)), 
+                position = position_dodge(width = 0.8), vjust = -0.5, size = 3.5) +
+      labs(title = paste0(student_name, " vs Class Average by Learning Type"),
+           x = "Learning Type",
+           y = "Average Score (0-1)",
+           fill = "Comparison") +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+            axis.title = element_text(size = 12),
+            legend.position = "bottom") +
+      scale_y_continuous(limits = c(0, 1)) +
+      scale_fill_manual(values = c("Student" = "#1f77b4", "Class Average" = "#ff7f0e")) # Custom colors
+  })
+  
+  # Graph 3 (Student Analysis): Radar chart – Student learning profile
+  output$student_radar_chart <- renderPlot({
+    req(selected_student_merged_data())
+    
+    student_avg_by_group <- selected_student_merged_data() %>%
+      group_by(group) %>%
+      summarise(average_score = mean(score, na.rm = TRUE)) %>%
+      ungroup()
+    
+    # Prepare data for radar chart (fmsb::radarchart expects a specific format)
+    # The first row should be the max values, second row min values, then actual data
+    # For a 0-1 score scale, max=1, min=0
+    
+    # Get all unique groups to ensure consistency
+    all_groups <- unique(mapping_raw_data()$group)
+    
+    # Create a template with all groups
+    radar_data_template <- data.frame(
+      group = all_groups,
+      average_score = 0
+    )
+    
+    # Fill in student's scores, ensuring all groups are present (0 if not in student data)
+    student_radar_df <- left_join(radar_data_template, student_avg_by_group, by = "group") %>%
+      mutate(average_score.y = ifelse(is.na(average_score.y), 0, average_score.y)) %>%
+      select(group, score = average_score.y) %>%
+      pivot_wider(names_from = group, values_from = score)
+    
+    # Ensure consistent order of columns (groups)
+    student_radar_df <- student_radar_df %>% select(all_groups)
+    
+    # Add max and min rows
+    max_min_df <- data.frame(matrix(NA, nrow=2, ncol=length(all_groups)))
+    colnames(max_min_df) <- all_groups
+    max_min_df[1,] <- 1 # Max score
+    max_min_df[2,] <- 0 # Min score
+    
+    radar_plot_data <- bind_rows(max_min_df, student_radar_df)
+    
+    # Plot radar chart
+    radarchart(
+      radar_plot_data,
+      seg = 5, # number of segments
+      pty = 16, # shape of the points
+      pcol = rgb(0.2, 0.5, 0.5, 0.9), # color of the line
+      pfcol = rgb(0.2, 0.5, 0.5, 0.5), # fill color
+      plwd = 2, # line width
+      cglcol = "grey", cglty = 1, axislabcol = "grey", caxislabels = seq(0, 1, 0.2), calcex = 0.8,
+      vlcex = 0.8 # label size
+    )
+    title(main = paste0(unique(selected_student_merged_data()$Name), "'s Learning Profile"))
   })
   
 }
